@@ -1,0 +1,46 @@
+name: Deploy PandaSlang to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Adapt paths for GitHub Pages
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.tsx')
+          s = p.read_text().replace('src="/panda-hero.webp"', 'src="./panda-hero.webp"').replace('href="/data/', 'href="./data/')
+          s = s.replace('href="#main-content"', 'href="#main-content" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}')
+          p.write_text(s)
+          p = Path('src/main.tsx')
+          s = p.read_text().replace('<App />', '<Router hook={useHashLocation}><App /></Router>')
+          p.write_text("import { Router } from 'wouter';\nimport { useHashLocation } from 'wouter/use-hash-location';\n" + s)
+          p = Path('src/ocr.ts')
+          p.write_text(p.read_text().replace('${window.location.origin}/ocr/', '${new URL("./", document.baseURI).href}ocr/'))
+          PY
+      - run: npm run build -- --base ./
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment
